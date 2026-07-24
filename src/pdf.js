@@ -1,145 +1,170 @@
-import { jsPDF } from 'jspdf'
+import PDFDocument from 'pdfkit'
+import { Readable } from 'stream'
 
 function hexToRgb(hex) {
-  const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+  const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex || '#1565C0')
   return r ? [parseInt(r[1],16), parseInt(r[2],16), parseInt(r[3],16)] : [21,101,192]
 }
 
 export async function gerarPDFWhitelabel({ cliente, planos, corretor, corretora }) {
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' })
-  const W = 210, M = 12
-
-  const P  = hexToRgb(corretora?.cor_primaria  || '#1565C0')
-  const PD = hexToRgb(corretora?.cor_secundaria || '#0D47A1')
-  const AC = hexToRgb(corretora?.cor_acento    || '#00BCD4')
-  const BR = [255,255,255]
-  const CZ = [100,116,139]
-  const PT = [15,23,42]
-  const CZL = [241,245,249]
-
-  const sf = (s,st='normal',c=PT) => { doc.setFontSize(s); doc.setFont('helvetica',st); doc.setTextColor(...c) }
-  const rf = (x,y,w,h,c,r=0) => { doc.setFillColor(...c); r>0?doc.roundedRect(x,y,w,h,r,r,'F'):doc.rect(x,y,w,h,'F') }
-  const tx = (t,x,y,o={}) => doc.text(String(t),x,y,o)
-  const ln = (x1,y1,x2,y2,c=CZ,lw=0.25) => { doc.setDrawColor(...c); doc.setLineWidth(lw); doc.line(x1,y1,x2,y2) }
-
-  // Cabeçalho
-  rf(0,0,W,46,PD)
-
-  // Logo ou nome da corretora
-  if (corretora?.logo_url) {
+  return new Promise(async (resolve, reject) => {
     try {
-      const resp = await fetch(corretora.logo_url)
-      const blob = await resp.blob()
-      const b64 = await new Promise(res => {
-        const reader = new FileReader()
-        reader.onloadend = () => res(reader.result)
-        reader.readAsDataURL(blob)
+      const doc = new PDFDocument({ size: 'A4', margin: 40 })
+      const chunks = []
+      doc.on('data', chunk => chunks.push(chunk))
+      doc.on('end', () => resolve(Buffer.concat(chunks)))
+      doc.on('error', reject)
+
+      const P = hexToRgb(corretora?.cor_primaria)
+      const PD = hexToRgb(corretora?.cor_secundaria)
+
+      // ── CABEÇALHO ──────────────────────────────────
+      doc.rect(0, 0, 595, 80).fill(`rgb(${PD[0]},${PD[1]},${PD[2]})`)
+
+      // Logo ou nome da corretora
+      if (corretora?.logo_url) {
+        try {
+          const resp = await fetch(corretora.logo_url)
+          const buf = Buffer.from(await resp.arrayBuffer())
+          doc.image(buf, 40, 15, { height: 50 })
+        } catch {
+          doc.fillColor('white').fontSize(20).font('Helvetica-Bold')
+             .text(corretora?.nome || 'Quotis', 40, 25)
+        }
+      } else {
+        doc.fillColor('white').fontSize(20).font('Helvetica-Bold')
+           .text(corretora?.nome || 'Quotis', 40, 25)
+        doc.fillColor('#00BCD4').fontSize(10).font('Helvetica')
+           .text('Saúde Regional', 40, 50)
+      }
+
+      // Info cotação
+      doc.fillColor('white').fontSize(8).font('Helvetica')
+         .text('PROPOSTA DE COTAÇÃO', 300, 20, { align: 'right', width: 255 })
+      doc.fontSize(13).font('Helvetica-Bold')
+         .text(`Nº ${Math.floor(Math.random()*90000)+10000}`, 300, 32, { align: 'right', width: 255 })
+      doc.fontSize(8).font('Helvetica')
+         .text(new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'}), 300, 46, { align: 'right', width: 255 })
+
+      // Corretor
+      if (corretor?.nome) {
+        doc.fillColor('white').fontSize(8).font('Helvetica')
+           .text(`Corretor: ${corretor.nome}`, 300, 60, { align: 'right', width: 255 })
+      }
+
+      // Faixa acento
+      doc.rect(0, 80, 595, 14).fill(`rgb(${P[0]},${P[1]},${P[2]})`)
+      doc.fillColor('white').fontSize(8).font('Helvetica-Bold')
+         .text('COMPARATIVO DE PLANOS DE SAÚDE — Vale do Paraíba · SP', 40, 85)
+
+      let y = 115
+
+      // ── BENEFICIÁRIO ────────────────────────────────
+      doc.fillColor(`rgb(${PD[0]},${PD[1]},${PD[2]})`).fontSize(10).font('Helvetica-Bold')
+         .text('BENEFICIÁRIO', 40, y)
+      doc.moveTo(40, y+14).lineTo(555, y+14).lineWidth(1).stroke(`rgb(${P[0]},${P[1]},${P[2]})`)
+      y += 22
+
+      const campos = [
+        ['Nome', cliente?.nome || '—'],
+        ['Cidade', cliente?.cidade || '—'],
+        ['Tipo', 'Pessoa Física'],
+        ['Profissão', cliente?.profissao || '—'],
+        ['Idade', cliente?.idade ? `${cliente.idade} anos` : '—'],
+        ['Dependentes', (parseInt(cliente?.deps)||0) > 0 ? `${cliente.deps} dependente(s)` : 'Sem dependentes'],
+      ]
+
+      const cw = 245
+      campos.forEach(([lb, vl], i) => {
+        const cx = 40 + (i%2)*(cw+20)
+        const cy = y + Math.floor(i/2)*28
+        doc.rect(cx, cy-2, cw, 22).fill('#F1F5F9')
+        doc.fillColor('#64748B').fontSize(7).font('Helvetica').text(lb, cx+4, cy+2)
+        doc.fillColor('#0F172A').fontSize(9).font('Helvetica-Bold').text(String(vl).slice(0,40), cx+4, cy+10)
       })
-      doc.addImage(b64, 'PNG', M, 8, 38, 18, '', 'FAST')
-    } catch {
-      sf(16,'bold',BR); tx(corretora.nome||'Quotis', M, 20)
-    }
-  } else {
-    sf(16,'bold',BR); tx(corretora?.nome||'Quotis', M, 20)
-    sf(8,'normal',AC); tx('Saúde Regional', M, 27)
-  }
+      y += Math.ceil(campos.length/2)*28 + 16
 
-  // Divisor
-  doc.setDrawColor(255,255,255); doc.setLineWidth(0.3)
-  doc.line(62,10,62,38)
+      // ── PLANOS ──────────────────────────────────────
+      doc.fillColor(`rgb(${PD[0]},${PD[1]},${PD[2]})`).fontSize(10).font('Helvetica-Bold')
+         .text('PLANOS COTADOS', 40, y)
+      doc.moveTo(40, y+14).lineTo(555, y+14).lineWidth(1).stroke(`rgb(${P[0]},${P[1]},${P[2]})`)
+      y += 22
 
-  // Info cotação
-  sf(7,'normal',[180,210,240]); tx('PROPOSTA DE COTAÇÃO', 67,16)
-  sf(12,'bold',BR); tx(`Nº ${Date.now().toString().slice(-5)}`, 67,24)
-  sf(7,'normal',[180,210,240])
-  tx(`Emitida em ${new Date().toLocaleDateString('pt-BR',{day:'2-digit',month:'long',year:'numeric'})}`, 67,30)
+      const numP = Math.min(planos.length, 3)
+      const colW = (515 - (numP-1)*8) / numP
 
-  // Corretor
-  sf(7,'normal',[180,210,240]); tx('Corretor responsável', W-M, 16, {align:'right'})
-  sf(9,'bold',BR); tx(corretor?.nome||'—', W-M, 24, {align:'right'})
-  sf(6,'normal',[160,200,240]); tx(corretor?.email||'', W-M, 30, {align:'right'})
+      planos.slice(0,3).forEach((plano, idx) => {
+        const px = 40 + idx*(colW+8)
+        const isD = idx === 0
 
-  // Faixa acento
-  rf(0,46,W,7,P)
-  sf(7,'bold',BR); tx('COMPARATIVO DE PLANOS DE SAÚDE', M, 51)
-  sf(6,'normal',[200,230,255]); tx('Vale do Paraíba · SP', W-M, 51, {align:'right'})
+        // Fundo card
+        doc.rect(px, y, colW, 120)
+           .fill(isD ? '#EBF4FE' : '#FAFCFF')
+           .stroke(isD ? `rgb(${P[0]},${P[1]},${P[2]})` : '#E2E8F0')
 
-  let y = 62
+        // Header card
+        doc.rect(px, y, colW, 16)
+           .fill(isD ? `rgb(${P[0]},${P[1]},${P[2]})` : '#F1F5F9')
+        doc.fillColor(isD ? 'white' : '#64748B').fontSize(7).font('Helvetica-Bold')
+           .text(isD ? '★ RECOMENDADO' : `OPÇÃO ${idx+1}`, px, y+5, { width: colW, align: 'center' })
 
-  // Dados do cliente
-  sf(8,'bold',PD); tx('BENEFICIÁRIO', M, y)
-  ln(M,y+2,W-M,y+2,P,0.5); y += 8
+        // Operadora
+        doc.fillColor('#64748B').fontSize(7).font('Helvetica')
+           .text(plano.operadora || '—', px, y+22, { width: colW, align: 'center' })
 
-  const campos = [
-    ['Nome', cliente.nome||'—'],
-    ['Cidade', cliente.cidade||'—'],
-    ['Tipo', 'Pessoa Física'],
-    ['Profissão', cliente.profissao||'—'],
-    ['Idade', cliente.idade ? `${cliente.idade} anos` : '—'],
-    ['Dependentes', cliente.dependentes > 0 ? `${cliente.dependentes} dependente(s)` : 'Sem dependentes'],
-  ]
+        // Nome plano
+        doc.fillColor(isD ? `rgb(${PD[0]},${PD[1]},${PD[2]})` : '#0F172A')
+           .fontSize(8).font('Helvetica-Bold')
+           .text(plano.nome || '—', px+4, y+34, { width: colW-8, align: 'center' })
 
-  const cw = (W-M*2-5)/2
-  campos.forEach(([lb,vl],i) => {
-    const cx = M+(i%2)*(cw+5), cy = y+Math.floor(i/2)*12
-    rf(cx,cy-5,cw,10,CZL,2)
-    sf(6,'normal',CZ); tx(lb, cx+3, cy-1)
-    sf(8,'bold',PT); tx(String(vl).slice(0,35), cx+3, cy+4)
+        // Linha
+        doc.moveTo(px+8, y+55).lineTo(px+colW-8, y+55).lineWidth(0.5).stroke('#E2E8F0')
+
+        // Preço
+        doc.fillColor('#64748B').fontSize(6).font('Helvetica')
+           .text('MENSALIDADE', px, y+60, { width: colW, align: 'center' })
+        const preco = `R$ ${(plano.preco||0).toFixed(2).replace('.',',')}`
+        doc.fillColor(`rgb(${P[0]},${P[1]},${P[2]})`).fontSize(14).font('Helvetica-Bold')
+           .text(preco, px, y+70, { width: colW, align: 'center' })
+
+        // Badges
+        doc.rect(px+4, y+88, colW/2-8, 14).fill('#DBEAFE')
+        doc.fillColor(`rgb(${P[0]},${P[1]},${P[2]})`).fontSize(6).font('Helvetica-Bold')
+           .text(plano.acomodacao || '—', px+4, y+93, { width: colW/2-8, align: 'center' })
+
+        const semCp = (plano.copart||'').toLowerCase().includes('sem')
+        doc.rect(px+colW/2+4, y+88, colW/2-8, 14).fill(semCp ? '#DCFCE7' : '#FEF3C7')
+        doc.fillColor(semCp ? '#15803D' : '#92400E').fontSize(6).font('Helvetica-Bold')
+           .text(plano.copart || '—', px+colW/2+4, y+93, { width: colW/2-8, align: 'center' })
+      })
+
+      y += 136
+
+      // ── AVISO ───────────────────────────────────────
+      if (y < 700) {
+        doc.rect(40, y, 515, 30).fill('#FEF9C3').stroke('#EAB308')
+        doc.fillColor('#92400E').fontSize(6).font('Helvetica-Bold')
+           .text('ATENÇÃO: Valores estimados sujeitos a alteração. Esta cotação não constitui proposta contratual.', 44, y+6, { width: 507 })
+        doc.fillColor('#78350F').fontSize(6).font('Helvetica')
+           .text('Carências e coparticipações devem ser confirmadas no contrato. Validade: 10 dias.', 44, y+16, { width: 507 })
+        y += 36
+      }
+
+      // ── RODAPÉ ──────────────────────────────────────
+      doc.rect(0, 762, 595, 80).fill(`rgb(${PD[0]},${PD[1]},${PD[2]})`)
+      doc.fillColor('white').fontSize(8).font('Helvetica-Bold')
+         .text(corretora?.nome || 'Quotis', 40, 772)
+      if (corretora?.email) {
+        doc.fillColor('#A0C8E8').fontSize(6).font('Helvetica')
+           .text(corretora.email, 40, 783)
+      }
+      doc.fillColor('#A0C8E8').fontSize(6).font('Helvetica')
+         .text('Plataforma Quotis · Vale do Paraíba · SP', 200, 772, { align: 'center', width: 195 })
+         .text('Valores meramente estimativos', 200, 783, { align: 'center', width: 195 })
+      doc.fillColor('#A0C8E8').fontSize(6).font('Helvetica')
+         .text('Página 1 de 1', 400, 772, { align: 'right', width: 155 })
+
+      doc.end()
+    } catch(e) { reject(e) }
   })
-  y += 3*12+6
-
-  // Planos
-  sf(8,'bold',PD); tx('PLANOS COTADOS', M, y)
-  ln(M,y+2,W-M,y+2,P,0.5); y += 8
-
-  const numP = Math.min(planos.length, 3)
-  const colW = (W-M*2-(numP-1)*4)/numP
-
-  planos.slice(0,3).forEach((plano,idx) => {
-    const px = M+idx*(colW+4)
-    const isD = idx===0
-
-    doc.setDrawColor(...(isD?P:CZL)); doc.setLineWidth(isD?0.8:0.3)
-    doc.roundedRect(px,y-2,colW,78,3,3)
-    rf(px,y-2,colW,78,isD?[235,244,254]:[250,252,255],3)
-
-    rf(px,y-2,colW,8,isD?P:CZL,3)
-    rf(px,y+2,colW,4,isD?P:CZL)
-    sf(6,'bold',isD?BR:CZ); tx(isD?'★ RECOMENDADO':`OPÇÃO ${idx+1}`, px+colW/2,y+3,{align:'center'})
-
-    // Badge operadora
-    const cx2 = px+colW/2
-    const cores = {'hapvida':[0,133,68],'santa casa':[183,28,28],'unimed':[46,125,50],'policlin':[13,71,161],'sao francisco':[74,20,140]}
-    const ck = Object.keys(cores).find(k=>(plano.operadora||'').toLowerCase().includes(k))
-    doc.setFillColor(...(cores[ck]||P))
-    doc.circle(cx2,y+18,8,'F')
-    sf(9,'bold',BR); tx((plano.operadora||'?').slice(0,2).toUpperCase(),cx2,y+21,{align:'center'})
-
-    sf(6,'bold',CZ); tx(plano.operadora||'—',cx2,y+30,{align:'center'})
-    sf(7,'bold',isD?PD:PT)
-    doc.text(doc.splitTextToSize(plano.nome||'—',colW-6).slice(0,2),cx2,y+38,{align:'center'})
-
-    ln(px+4,y+43,px+colW-4,y+43,CZL)
-    sf(6,'normal',CZ); tx('MENSALIDADE',cx2,y+49,{align:'center'})
-    sf(14,'bold',isD?P:PD); tx(`R$ ${(plano.preco||0).toFixed(2).replace('.',',')}`,cx2,y+58,{align:'center'})
-
-    rf(px+3,y+61,colW/2-5,7,isD?[214,232,254]:CZL,2)
-    sf(5.5,'bold',isD?P:CZ); tx(plano.acomodacao||'—',px+colW/4,y+66,{align:'center'})
-
-    const semCp=(plano.copart||'').toLowerCase().includes('sem')
-    rf(px+colW/2+2,y+61,colW/2-5,7,semCp?[220,252,231]:[254,243,199],2)
-    sf(5.5,'bold',semCp?[21,128,61]:[146,64,14]); tx(plano.copart||'—',px+colW*3/4,y+66,{align:'center'})
-  })
-  y += 84
-
-  // Rodapé
-  rf(0,285,W,12,PD)
-  sf(7,'bold',BR); tx(corretora?.nome||'Quotis', M, 291)
-  sf(5.5,'normal',[160,200,240]); tx(corretora?.email||'', M, 296)
-  sf(6,'normal',[160,200,240]); tx('Plataforma Quotis · Vale do Paraíba · SP', W/2, 291, {align:'center'})
-  sf(5.5,'normal',[160,200,240]); tx('Valores estimativos sujeitos a alteração', W/2, 296, {align:'center'})
-  sf(7,'normal',[160,200,240]); tx('Página 1 de 1', W-M, 291, {align:'right'})
-  if (corretora?.telefone) { sf(5.5,'normal',[160,200,240]); tx(corretora.telefone, W-M, 296, {align:'right'}) }
-
-  return Buffer.from(doc.output('arraybuffer'))
 }
