@@ -1,5 +1,4 @@
 import axios from 'axios'
-import FormData from 'form-data'
 
 const api = axios.create({
   baseURL: process.env.EVOLUTION_URL,
@@ -16,16 +15,13 @@ export async function enviarTexto(numero, mensagem) {
 }
 
 export async function enviarPDF(numero, pdfBuffer, nomeCliente) {
-  const form = new FormData()
-  form.append('number', numero)
-  form.append('caption', `📄 Proposta de cotação — ${nomeCliente}`)
-  form.append('document', pdfBuffer, {
-    filename: `Cotacao_${nomeCliente.replace(/\s+/g,'_')}.pdf`,
-    contentType: 'application/pdf'
-  })
-
-  await api.post(`/message/sendMedia/${INSTANCE}`, form, {
-    headers: form.getHeaders()
+  await api.post(`/message/sendMedia/${INSTANCE}`, {
+    number: numero,
+    mediatype: 'document',
+    mimetype: 'application/pdf',
+    caption: `📄 Proposta de cotação — ${nomeCliente}`,
+    media: pdfBuffer.toString('base64'),
+    fileName: `Cotacao_${nomeCliente.replace(/\s+/g,'_')}.pdf`
   })
 }
 
