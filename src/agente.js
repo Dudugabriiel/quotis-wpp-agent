@@ -15,7 +15,7 @@ Você atende exclusivamente corretores de saúde via WhatsApp.
 Sua função é:
 1. Coletar os dados necessários para fazer uma cotação
 2. Identificar dados faltantes e pedir de forma clara e amigável
-3. Quando tiver todos os dados, fazer a cotação e apresentar os planos
+3. Quando tiver todos os dados, chamar a ferramenta buscar_planos e apresentar os planos retornados
 4. Responder dúvidas sobre planos, carências e coberturas
 
 DADOS NECESSÁRIOS para cotação PF:
@@ -36,12 +36,14 @@ CIDADES ATENDIDAS: ${CIDADES_VALIDAS.join(', ')}
 REGRAS:
 - Seja direto, objetivo e use emojis com moderação
 - Se faltar algum dado, liste EXATAMENTE quais faltam
-- Nunca invente preços — use sempre os dados reais do banco
-- Quando apresentar planos, mostre no máximo 3 (os mais baratos)
+- Assim que tiver cidade, idade do titular e tipo (PF ou PJ), chame a ferramenta buscar_planos — nunca escreva preços ou nomes de planos de memória
+- Use EXCLUSIVAMENTE os planos e preços retornados pela ferramenta buscar_planos
+- Se a ferramenta não retornar nenhum plano, informe ao corretor que não há planos disponíveis para esses critérios e sugira revisar cidade/idade
+- Quando apresentar planos, mostre no máximo 3 (os mais baratos, a ferramenta já retorna ordenado)
 - Formate valores como R$ 1.234,56
 - Ao apresentar cotação, sempre ofereça o comando *pdf* no final
 
-FORMATO DE RESPOSTA para cotação completa:
+FORMATO DE RESPOSTA para cotação completa (somente depois de receber o resultado da ferramenta buscar_planos):
 Use este formato exato ao apresentar planos:
 [COTACAO_PRONTA]
 nome_cliente|cidade|idade|dependentes_count
@@ -51,6 +53,45 @@ operadora3|nome_plano3|acomodacao3|copart3|preco_total3
 [/COTACAO_PRONTA]
 
 Seguido da mensagem formatada para o corretor.`
+
+const BUSCAR_PLANOS_TOOL = {
+  name: 'buscar_planos',
+  description: 'Busca no banco de dados da Quotis os planos de saúde reais disponíveis, com preços atualizados, para uma cidade/idade/tipo de cotação. Chame esta ferramenta assim que tiver os dados mínimos — nunca invente planos ou preços.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      cidade: {
+        type: 'string',
+        description: 'Cidade atendida, exatamente como escrita na lista de cidades atendidas'
+      },
+      idadeTitular: {
+        type: 'integer',
+        description: 'Idade do titular (cliente PF) ou idade predominante dos beneficiários (PJ)'
+      },
+      tipo: {
+        type: 'string',
+        enum: ['PF', 'PJ'],
+        description: 'Tipo de cotação: PF (pessoa física) ou PJ (empresarial)'
+      },
+      profissao: {
+        type: 'string',
+        description: 'Profissão do titular, relevante para planos de adesão por entidade de classe'
+      },
+      dependentes: {
+        type: 'array',
+        description: 'Lista de dependentes, cada um com a idade',
+        items: {
+          type: 'object',
+          properties: {
+            idade: { type: 'integer' }
+          },
+          required: ['idade']
+        }
+      }
+    },
+    required: ['cidade', 'idadeTitular', 'tipo']
+  }
+}
 
 // Sessões em memória (por número de WhatsApp)
 const sessoes = new Map()
@@ -109,17 +150,59 @@ _Cidades atendidas: ${CIDADES_VALIDAS.join(', ')}_`
   // Adicionar mensagem ao histórico
   sessao.historico.push({ role: 'user', content: mensagem })
 
-  // Chamar Claude
-  const response = await claude.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 1000,
-    system: SYSTEM_PROMPT,
-    messages: sessao.historico
-  })
+  // Mensagens de trabalho para esta chamada (pode incluir idas e vindas de tool use,
+  // que não são persistidas no histórico de longo prazo — só a resposta final em texto)
+  let mensagensParaClaude = [...sessao.historico]
+  let respostaIA = null
 
-  const respostaIA = response.content[0].text
+  for (let tentativa = 0; tentativa < 3; tentativa++) {
+    const response = await claude.messages.create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1000,
+      system: SYSTEM_PROMPT,
+      tools: [BUSCAR_PLANOS_TOOL],
+      messages: mensagensParaClaude
+    })
 
-  // Adicionar resposta ao histórico
+    if (response.stop_reason === 'tool_use') {
+      const toolUse = response.content.find(b => b.type === 'tool_use')
+      let resultadoFerramenta
+
+      try {
+        const planos = await buscarPlanos({
+          cidade: toolUse.input.cidade,
+          idadeTitular: toolUse.input.idadeTitular,
+          tipo: toolUse.input.tipo,
+          profissao: toolUse.input.profissao,
+          dependentes: toolUse.input.dependentes || []
+        })
+        resultadoFerramenta = JSON.stringify({ planos })
+      } catch (err) {
+        console.error('❌ Erro ao buscar planos:', err)
+        resultadoFerramenta = JSON.stringify({ erro: 'Falha ao consultar planos no banco de dados.' })
+      }
+
+      mensagensParaClaude.push({ role: 'assistant', content: response.content })
+      mensagensParaClaude.push({
+        role: 'user',
+        content: [{
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content: resultadoFerramenta
+        }]
+      })
+      continue
+    }
+
+    respostaIA = response.content.find(b => b.type === 'text')?.text || ''
+    break
+  }
+
+  if (respostaIA === null) {
+    respostaIA = '⚠️ Não consegui finalizar sua cotação agora. Pode tentar novamente?'
+  }
+
+  // Adicionar resposta final ao histórico (sem as idas e vindas de tool use)
   sessao.historico.push({ role: 'assistant', content: respostaIA })
 
   // Limitar histórico a 20 mensagens
