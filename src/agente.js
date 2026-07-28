@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { buscarPlanos } from './supabase.js'
+import { buscarPlanos, buscarDetalhesPlano } from './supabase.js'
 
 const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -64,6 +64,7 @@ Depois de apresentar a cotação/PDF, sem esperar o corretor pedir, em poucas li
 
 ### 6. ORIGEM DAS INFORMAÇÕES
 - Preços, carências, rede hospitalar, documentação e coparticipação: sempre e somente do contexto/ferramenta fornecido pela plataforma. Nunca invente dado técnico ou operacional.
+- Se o corretor perguntar sobre carência, coparticipação, documentos necessários ou rede hospitalar de um plano (geralmente um dos planos já mostrados na última cotação), chame a ferramenta buscar_detalhes_plano com o nome do plano (e operadora, se souber) antes de responder. Nunca responda esse tipo de pergunta de memória.
 - Estratégias de venda, técnicas de persuasão (gatilhos mentais, AIDA), contorno de objeções e redação de mensagens para o cliente final: livre, use seu conhecimento para ajudar o corretor a vender melhor.
 
 ### 7. CONFIDENCIALIDADE — PROIBIÇÕES ESTRITAS
@@ -121,6 +122,25 @@ const BUSCAR_PLANOS_TOOL = {
       }
     },
     required: ['cidade', 'idadeTitular', 'tipo']
+  }
+}
+
+const BUSCAR_DETALHES_TOOL = {
+  name: 'buscar_detalhes_plano',
+  description: 'Busca detalhes específicos de um plano já cotado: carências, coparticipação por serviço, documentos necessários e rede hospitalar. Chame somente quando o corretor perguntar sobre esses tópicos para um plano específico.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      nomePlano: {
+        type: 'string',
+        description: 'Nome do plano, como retornado por buscar_planos (pode ser parcial)'
+      },
+      operadora: {
+        type: 'string',
+        description: 'Nome da operadora do plano, se souber, para desambiguar planos com nomes parecidos'
+      }
+    },
+    required: ['nomePlano']
   }
 }
 
@@ -187,7 +207,7 @@ Cidades atendidas: ${CIDADES_VALIDAS.join(', ')}`
       model: 'claude-sonnet-4-6',
       max_tokens: 600,
       system: systemPrompt,
-      tools: [BUSCAR_PLANOS_TOOL],
+      tools: [BUSCAR_PLANOS_TOOL, BUSCAR_DETALHES_TOOL],
       messages: mensagensParaClaude
     })
 
@@ -196,20 +216,30 @@ Cidades atendidas: ${CIDADES_VALIDAS.join(', ')}`
       let resultadoFerramenta
 
       try {
-        const planos = await buscarPlanos({
-          cidade: toolUse.input.cidade,
-          idadeTitular: toolUse.input.idadeTitular,
-          tipo: toolUse.input.tipo,
-          profissao: toolUse.input.profissao,
-          dependentes: toolUse.input.dependentes || [],
-          acomodacaoPreferida: toolUse.input.acomodacaoPreferida,
-          operadoraPreferida: toolUse.input.operadoraPreferida,
-          incluirAdesao: toolUse.input.incluirAdesao
-        })
-        resultadoFerramenta = JSON.stringify({ planos })
+        if (toolUse.name === 'buscar_detalhes_plano') {
+          const detalhes = await buscarDetalhesPlano({
+            nomePlano: toolUse.input.nomePlano,
+            operadora: toolUse.input.operadora
+          })
+          resultadoFerramenta = detalhes
+            ? JSON.stringify({ detalhes })
+            : JSON.stringify({ erro: 'Plano não encontrado. Confirme o nome com o corretor.' })
+        } else {
+          const planos = await buscarPlanos({
+            cidade: toolUse.input.cidade,
+            idadeTitular: toolUse.input.idadeTitular,
+            tipo: toolUse.input.tipo,
+            profissao: toolUse.input.profissao,
+            dependentes: toolUse.input.dependentes || [],
+            acomodacaoPreferida: toolUse.input.acomodacaoPreferida,
+            operadoraPreferida: toolUse.input.operadoraPreferida,
+            incluirAdesao: toolUse.input.incluirAdesao
+          })
+          resultadoFerramenta = JSON.stringify({ planos })
+        }
       } catch (err) {
-        console.error('❌ Erro ao buscar planos:', err)
-        resultadoFerramenta = JSON.stringify({ erro: 'Falha ao consultar planos no banco de dados.' })
+        console.error('❌ Erro ao executar ferramenta:', err)
+        resultadoFerramenta = JSON.stringify({ erro: 'Falha ao consultar dados no banco de dados.' })
       }
 
       mensagensParaClaude.push({ role: 'assistant', content: response.content })

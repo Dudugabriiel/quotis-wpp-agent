@@ -105,3 +105,78 @@ export async function buscarPlanos({
 
   return resultado.sort((a, b) => a.preco - b.preco)
 }
+
+export async function buscarDetalhesPlano({ nomePlano, operadora }) {
+  const supabase = getClient()
+
+  let query = supabase
+    .from('planos')
+    .select(`
+      id, nome, modalidade,
+      tem_coparticipacao, coparticipacao_tipo, coparticipacao_detalhe,
+      carencia_consulta, carencia_exame_simples, carencia_exame_complexo,
+      carencia_internacao, carencia_cirurgia, carencia_obstetricia,
+      carencia_urgencia_horas, carencia_doenca_preexistente,
+      tem_isencao_carencia, isencao_carencia_detalhe,
+      rede_resumo, rede_url,
+      operadoras!inner(nome)
+    `)
+    .ilike('nome', `%${nomePlano}%`)
+    .eq('ativo', true)
+    .limit(1)
+
+  if (operadora) {
+    query = query.ilike('operadoras.nome', `%${operadora}%`)
+  }
+
+  const { data: planos, error } = await query
+
+  if (error) {
+    console.error('❌ Erro ao buscar detalhes do plano:', error.message)
+    return null
+  }
+  if (!planos || planos.length === 0) return null
+
+  const plano = planos[0]
+
+  const [{ data: carenciasDetalhe }, { data: copartDetalhe }, { data: regrasPf }, { data: regrasPj }, { data: rede }] = await Promise.all([
+    supabase.from('plan_carencias').select('procedimento, dias, condicao, observacao').eq('plano_id', plano.id),
+    supabase.from('plan_coparticipacao').select('servico, tipo_copart, valor_fixo, percentual, valor_maximo, faixa_preco, observacao').eq('plano_id', plano.id),
+    supabase.from('plan_regras_pf').select('tipo_beneficiario, documentos, observacao').eq('plano_id', plano.id),
+    supabase.from('plan_regras_pj').select('docs_empresa, docs_funcionario, meses_minimos_cnpj, observacao').eq('plano_id', plano.id),
+    supabase.from('plano_rede_hospitais').select('nome, tipo, cidade').eq('plano_id', plano.id).limit(10)
+  ])
+
+  return {
+    nome: plano.nome,
+    operadora: plano.operadoras?.nome,
+    carencias: {
+      consulta_dias: plano.carencia_consulta,
+      exame_simples_dias: plano.carencia_exame_simples,
+      exame_complexo_dias: plano.carencia_exame_complexo,
+      internacao_dias: plano.carencia_internacao,
+      cirurgia_dias: plano.carencia_cirurgia,
+      obstetricia_dias: plano.carencia_obstetricia,
+      urgencia_horas: plano.carencia_urgencia_horas,
+      doenca_preexistente_dias: plano.carencia_doenca_preexistente,
+      tem_isencao: plano.tem_isencao_carencia,
+      isencao_detalhe: plano.isencao_carencia_detalhe,
+      detalhes_por_procedimento: carenciasDetalhe || []
+    },
+    coparticipacao: {
+      tem: plano.tem_coparticipacao,
+      tipo: plano.coparticipacao_tipo,
+      detalhe: plano.coparticipacao_detalhe,
+      detalhes_por_servico: copartDetalhe || []
+    },
+    documentos: {
+      pf: regrasPf || [],
+      pj: regrasPj || []
+    },
+    rede: {
+      resumo: plano.rede_resumo,
+      url: plano.rede_url,
+      hospitais_exemplo: rede || []
+    }
+  }
+}
