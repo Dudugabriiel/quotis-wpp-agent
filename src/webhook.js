@@ -27,7 +27,7 @@ export async function handleWebhook(req, res) {
     const corretor = await getCorretorByWhatsapp(numero)
     if (!corretor) {
       await enviarTexto(numero,
-        `⛔ *Número não autorizado*\n\n` +
+        `⛔ Número não autorizado\n\n` +
         `Seu número não está cadastrado no sistema Quotis.\n` +
         `Solicite ao seu gestor que cadastre seu WhatsApp no sistema.\n\n` +
         `📞 Suporte: suporte@quotis.app`
@@ -63,7 +63,7 @@ export async function handleWebhook(req, res) {
 
       await enviarPDF(numero, pdfBuffer, cotacao.cliente.nome || 'cliente')
       await enviarTexto(numero,
-        `✅ PDF enviado com a marca da *${corretora?.nome || 'sua corretora'}*!\n\n` +
+        `✅ PDF enviado com a marca da ${corretora?.nome || 'sua corretora'}!\n\n` +
         `Encaminhe para seu cliente. 📲`
       )
     }

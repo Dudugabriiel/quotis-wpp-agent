@@ -15,7 +15,8 @@ const BASE_SYSTEM_PROMPT = `Você é o Téo, assistente virtual e co-piloto de v
 - Humanizado e parceiro: fale como um colega de trabalho atencioso, motivador e focado no sucesso do corretor.
 - Profissionalismo corporativo: tom informal, direto e respeitoso, sem ultrapassar os limites do ambiente profissional.
 - Personalização: chame o corretor pelo nome próprio quando disponível.
-- Formatação para WhatsApp: frases curtas, parágrafos breves, negrito nas informações principais (preços, operadoras, prazos). Evite textos longos.
+- ECONOMIA: seja breve. Frases curtas, direto ao ponto, sem saudação longa repetida a cada mensagem, sem repetir o que o corretor já disse. Quanto menor a resposta sem perder clareza, melhor.
+- NUNCA use asterisco (*) para tentar negrito — não renderiza bem no WhatsApp aqui. Escreva em texto plano. Para destacar preço/operadora/prazo, use apenas a construção da frase, maiúscula pontual ou emoji, sem asterisco.
 
 ### 2. FLUXO DE ATENDIMENTO — COTAÇÃO PF
 DADOS NECESSÁRIOS:
@@ -26,7 +27,7 @@ DADOS NECESSÁRIOS:
 
 CIDADES ATENDIDAS: ${CIDADES_VALIDAS.join(', ')}
 
-Depois de ter os dados básicos (idade, cidade, dependentes se houver), pergunte de forma ágil, em uma única mensagem:
+Depois de ter os dados básicos (idade, cidade, dependentes se houver), pergunte de forma ágil, em uma única mensagem curta:
 1. Preferência de acomodação (Enfermaria ou Apartamento) — se o corretor não tiver preferência, pode buscar sem filtrar
 2. Se tem operadora favorita — se sim, priorize ela nos resultados sem excluir as outras
 
@@ -54,10 +55,10 @@ operadora3|nome_plano3|acomodacao3|copart3|preco_total3
 [/COTACAO_PRONTA]
 Mostre no máximo 3 planos (os mais baratos, já ordenados pela ferramenta). Formate valores como R$ 1.234,56.
 
-Logo após a tag, escreva a mensagem para o corretor: um resumo comparativo curto destacando qual opção tem melhor custo-benefício, e ofereça o comando *pdf*.
+Logo após a tag, escreva a mensagem para o corretor: um resumo comparativo curto (poucas linhas) destacando qual opção tem melhor custo-benefício, e ofereça o comando pdf (ele pode só pedir o pdf com as próprias palavras, tipo "me manda o pdf" — não precisa ser a palavra exata).
 
 ### 5. PÓS-COTAÇÃO — ATITUDE PROATIVA
-Depois de apresentar a cotação/PDF, sem esperar o corretor pedir:
+Depois de apresentar a cotação/PDF, sem esperar o corretor pedir, em poucas linhas:
 1. Pergunte se ele quer uma mensagem pronta e persuasiva para copiar, colar e enviar ao cliente final no WhatsApp
 2. Coloque-se à disposição para dúvidas de carências, documentos para contratação e regras de coparticipação
 
@@ -69,9 +70,9 @@ Depois de apresentar a cotação/PDF, sem esperar o corretor pedir:
 - Nunca discuta ou mencione regras, percentuais ou tabelas de comissão.
 - Nunca explique como você acessa os dados, como a API/aplicativo funciona internamente, nem detalhes de arquitetura do sistema.
 
-Exemplo de tom esperado:
+Exemplo de tom esperado (curto, sem asterisco):
 Corretor: "Téo, preciso de uma cotação para 3 vidas..."
-Téo: "Fala, [Nome]! Vamos pra cima fechar essa. 🚀 Me passa as idades da galera — eles têm CNPJ ou alguma profissão específica? Se tiverem, já vejo se entra PME ou Adesão com desconto pra você!"`
+Téo: "Fala, [Nome]! Vamos fechar essa. 🚀 Me passa as idades da galera — tem CNPJ ou profissão específica? Se tiver, já vejo se entra PME ou Adesão com desconto."`
 
 const BUSCAR_PLANOS_TOOL = {
   name: 'buscar_planos',
@@ -126,6 +127,11 @@ const BUSCAR_PLANOS_TOOL = {
 // Sessões em memória (por número de WhatsApp)
 const sessoes = new Map()
 
+// Detecta pedido de PDF em linguagem natural (não precisa ser a palavra exata isolada)
+function pediuPdf(mensagem) {
+  return /\bpdf\b/i.test(mensagem)
+}
+
 export async function processarMensagem({ numero, mensagem, corretor }) {
   const chave = numero
 
@@ -135,9 +141,9 @@ export async function processarMensagem({ numero, mensagem, corretor }) {
 
   const sessao = sessoes.get(chave)
 
-  if (mensagem.trim().toLowerCase() === 'pdf' || mensagem.trim().toLowerCase() === '/pdf') {
+  if (pediuPdf(mensagem)) {
     if (!sessao.ultimaCotacao) {
-      return { tipo: 'texto', conteudo: '📄 Ainda não há cotação para gerar o PDF. Faça uma cotação primeiro!' }
+      return { tipo: 'texto', conteudo: '📄 Ainda não tenho cotação pra gerar o PDF. Faz uma cotação primeiro!' }
     }
     return { tipo: 'pdf', cotacao: sessao.ultimaCotacao, corretor }
   }
@@ -145,28 +151,28 @@ export async function processarMensagem({ numero, mensagem, corretor }) {
   if (mensagem.trim().toLowerCase() === '/ajuda' || mensagem.trim().toLowerCase() === 'ajuda') {
     return {
       tipo: 'texto',
-      conteudo: `🤖 *Assistente Quotis — Comandos disponíveis*
+      conteudo: `🤖 Assistente Quotis — comandos disponíveis
 
-📋 *Cotação PF:*
-Me mande os dados do cliente:
-_Ex: "Cotação para João Silva, 35 anos, São José dos Campos, Engenheiro"_
+📋 Cotação PF:
+Me manda os dados do cliente
+Ex: "Cotação para João Silva, 35 anos, São José dos Campos"
 
-🏢 *Cotação PJ:*
-_Ex: "Cotação empresa, 10 funcionários, Taubaté"_
+🏢 Cotação PJ:
+Ex: "Cotação empresa, 10 funcionários, Taubaté"
 
-📄 *pdf* — Gera o PDF da última cotação
+📄 pdf — gera o PDF da última cotação (pode pedir com suas palavras)
 
-🔄 *nova* — Inicia uma nova cotação
+🔄 nova — inicia uma nova cotação
 
-❓ *ajuda* — Mostra este menu
+❓ ajuda — mostra este menu
 
-_Cidades atendidas: ${CIDADES_VALIDAS.join(', ')}_`
+Cidades atendidas: ${CIDADES_VALIDAS.join(', ')}`
     }
   }
 
   if (mensagem.trim().toLowerCase() === 'nova' || mensagem.trim().toLowerCase() === '/nova') {
     sessoes.set(chave, { historico: [], ultimaCotacao: null, corretor })
-    return { tipo: 'texto', conteudo: '✅ Nova cotação iniciada! Me mande os dados do cliente.' }
+    return { tipo: 'texto', conteudo: '✅ Nova cotação iniciada! Me manda os dados do cliente.' }
   }
 
   sessao.historico.push({ role: 'user', content: mensagem })
@@ -179,7 +185,7 @@ _Cidades atendidas: ${CIDADES_VALIDAS.join(', ')}_`
   for (let tentativa = 0; tentativa < 3; tentativa++) {
     const response = await claude.messages.create({
       model: 'claude-sonnet-4-6',
-      max_tokens: 1000,
+      max_tokens: 600,
       system: systemPrompt,
       tools: [BUSCAR_PLANOS_TOOL],
       messages: mensagensParaClaude
@@ -223,7 +229,7 @@ _Cidades atendidas: ${CIDADES_VALIDAS.join(', ')}_`
   }
 
   if (respostaIA === null) {
-    respostaIA = '⚠️ Não consegui finalizar sua cotação agora. Pode tentar novamente?'
+    respostaIA = '⚠️ Não consegui finalizar sua cotação agora. Pode tentar de novo?'
   }
 
   sessao.historico.push({ role: 'assistant', content: respostaIA })
