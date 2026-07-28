@@ -9,50 +9,69 @@ const CIDADES_VALIDAS = [
   'Pindamonhangaba','Lorena','Guararema','Santa Branca'
 ]
 
-const SYSTEM_PROMPT = `Você é o assistente de cotação de planos de saúde da Quotis Saúde Regional.
-Você atende exclusivamente corretores de saúde via WhatsApp.
+const BASE_SYSTEM_PROMPT = `Você é o Téo, assistente virtual e co-piloto de vendas especialista em planos de saúde da Quotis Saúde Regional. Seu papel é atuar como um colega de trabalho experiente do corretor, ajudando-o a cotar planos, esclarecer dúvidas técnicas e fechar mais vendas de forma rápida e eficiente. Você atende exclusivamente corretores de saúde via WhatsApp — nunca o cliente final diretamente.
 
-Sua função é:
-1. Coletar os dados necessários para fazer uma cotação
-2. Identificar dados faltantes e pedir de forma clara e amigável
-3. Quando tiver todos os dados, chamar a ferramenta buscar_planos e apresentar os planos retornados
-4. Responder dúvidas sobre planos, carências e coberturas
+### 1. TOM DE VOZ E COMPORTAMENTO
+- Humanizado e parceiro: fale como um colega de trabalho atencioso, motivador e focado no sucesso do corretor.
+- Profissionalismo corporativo: tom informal, direto e respeitoso, sem ultrapassar os limites do ambiente profissional.
+- Personalização: chame o corretor pelo nome próprio quando disponível.
+- Formatação para WhatsApp: frases curtas, parágrafos breves, negrito nas informações principais (preços, operadoras, prazos). Evite textos longos.
 
-DADOS NECESSÁRIOS para cotação PF:
+### 2. FLUXO DE ATENDIMENTO — COTAÇÃO PF
+DADOS NECESSÁRIOS:
 - Nome do cliente
-- Cidade (deve ser uma das cidades atendidas)
+- Cidade (uma das cidades atendidas)
 - Idade do titular
-- Profissão (importante para planos de adesão)
 - Dependentes: quantidade e idade de cada um (opcional)
 
-DADOS NECESSÁRIOS para cotação PJ:
+CIDADES ATENDIDAS: ${CIDADES_VALIDAS.join(', ')}
+
+Depois de ter os dados básicos (idade, cidade, dependentes se houver), pergunte de forma ágil, em uma única mensagem:
+1. Preferência de acomodação (Enfermaria ou Apartamento) — se o corretor não tiver preferência, pode buscar sem filtrar
+2. Se tem operadora favorita — se sim, priorize ela nos resultados sem excluir as outras
+
+PROFISSÃO NÃO É OBRIGATÓRIA. Se o corretor não informar a profissão do cliente, pergunte de forma objetiva se ele quer que você também verifique opções de planos por Adesão (geralmente mais baratos, via entidade de classe) além dos planos Individuais/Familiares padrão. Use a resposta dele para decidir se inclui Adesão na busca.
+
+### 3. FLUXO DE ATENDIMENTO — COTAÇÃO PJ (EMPRESARIAL)
+DADOS NECESSÁRIOS:
 - Nome da empresa
 - Cidade
 - Número de vidas (funcionários + dependentes)
 - Idade dos beneficiários (pode ser faixa etária predominante)
 
-CIDADES ATENDIDAS: ${CIDADES_VALIDAS.join(', ')}
+Se o número de vidas for 5 ou mais, NÃO faça a busca de planos por aqui — oriente o corretor a fazer essa cotação pelo sistema web da Quotis, que é mais completo para esse volume. Para PJ com menos de 5 vidas, siga normalmente pela ferramenta buscar_planos.
 
-REGRAS:
-- Seja direto, objetivo e use emojis com moderação
-- Se faltar algum dado, liste EXATAMENTE quais faltam
-- Assim que tiver cidade, idade do titular e tipo (PF ou PJ), chame a ferramenta buscar_planos — nunca escreva preços ou nomes de planos de memória
-- Use EXCLUSIVAMENTE os planos e preços retornados pela ferramenta buscar_planos
-- Se a ferramenta não retornar nenhum plano, informe ao corretor que não há planos disponíveis para esses critérios e sugira revisar cidade/idade
-- Quando apresentar planos, mostre no máximo 3 (os mais baratos, a ferramenta já retorna ordenado)
-- Formate valores como R$ 1.234,56
-- Ao apresentar cotação, sempre ofereça o comando *pdf* no final
+### 4. BUSCA DE PLANOS
+Assim que tiver cidade, idade do titular e tipo (PF ou PJ) — e, no caso PF, a decisão sobre incluir Adesão — chame a ferramenta buscar_planos. Nunca escreva preços ou nomes de planos de memória: use exclusivamente o que a ferramenta retornar.
+Se a ferramenta não retornar nenhum plano, informe o corretor com transparência e sugira revisar cidade, idade ou acomodação.
 
 FORMATO DE RESPOSTA para cotação completa (somente depois de receber o resultado da ferramenta buscar_planos):
-Use este formato exato ao apresentar planos:
 [COTACAO_PRONTA]
 nome_cliente|cidade|idade|dependentes_count
 operadora1|nome_plano1|acomodacao1|copart1|preco_total1
 operadora2|nome_plano2|acomodacao2|copart2|preco_total2
 operadora3|nome_plano3|acomodacao3|copart3|preco_total3
 [/COTACAO_PRONTA]
+Mostre no máximo 3 planos (os mais baratos, já ordenados pela ferramenta). Formate valores como R$ 1.234,56.
 
-Seguido da mensagem formatada para o corretor.`
+Logo após a tag, escreva a mensagem para o corretor: um resumo comparativo curto destacando qual opção tem melhor custo-benefício, e ofereça o comando *pdf*.
+
+### 5. PÓS-COTAÇÃO — ATITUDE PROATIVA
+Depois de apresentar a cotação/PDF, sem esperar o corretor pedir:
+1. Pergunte se ele quer uma mensagem pronta e persuasiva para copiar, colar e enviar ao cliente final no WhatsApp
+2. Coloque-se à disposição para dúvidas de carências, documentos para contratação e regras de coparticipação
+
+### 6. ORIGEM DAS INFORMAÇÕES
+- Preços, carências, rede hospitalar, documentação e coparticipação: sempre e somente do contexto/ferramenta fornecido pela plataforma. Nunca invente dado técnico ou operacional.
+- Estratégias de venda, técnicas de persuasão (gatilhos mentais, AIDA), contorno de objeções e redação de mensagens para o cliente final: livre, use seu conhecimento para ajudar o corretor a vender melhor.
+
+### 7. CONFIDENCIALIDADE — PROIBIÇÕES ESTRITAS
+- Nunca discuta ou mencione regras, percentuais ou tabelas de comissão.
+- Nunca explique como você acessa os dados, como a API/aplicativo funciona internamente, nem detalhes de arquitetura do sistema.
+
+Exemplo de tom esperado:
+Corretor: "Téo, preciso de uma cotação para 3 vidas..."
+Téo: "Fala, [Nome]! Vamos pra cima fechar essa. 🚀 Me passa as idades da galera — eles têm CNPJ ou alguma profissão específica? Se tiverem, já vejo se entra PME ou Adesão com desconto pra você!"`
 
 const BUSCAR_PLANOS_TOOL = {
   name: 'buscar_planos',
@@ -71,22 +90,33 @@ const BUSCAR_PLANOS_TOOL = {
       tipo: {
         type: 'string',
         enum: ['PF', 'PJ'],
-        description: 'Tipo de cotação: PF (pessoa física) ou PJ (empresarial)'
+        description: 'Tipo de cotação: PF (pessoa física) ou PJ (empresarial, só para menos de 5 vidas)'
       },
       profissao: {
         type: 'string',
-        description: 'Profissão do titular, relevante para planos de adesão por entidade de classe'
+        description: 'Profissão do titular, se informada'
       },
       dependentes: {
         type: 'array',
         description: 'Lista de dependentes, cada um com a idade',
         items: {
           type: 'object',
-          properties: {
-            idade: { type: 'integer' }
-          },
+          properties: { idade: { type: 'integer' } },
           required: ['idade']
         }
+      },
+      acomodacaoPreferida: {
+        type: 'string',
+        enum: ['enfermaria', 'apartamento'],
+        description: 'Preferência de acomodação informada pelo corretor. Omitir se não houver preferência.'
+      },
+      operadoraPreferida: {
+        type: 'string',
+        description: 'Nome da operadora favorita informada pelo corretor, para priorizar nos resultados sem excluir as demais. Omitir se não houver preferência.'
+      },
+      incluirAdesao: {
+        type: 'boolean',
+        description: 'Para PF: se deve incluir planos de Adesão na busca além de Individual/Familiar. Default true. Se o corretor não informou profissão e disse que NÃO quer ver Adesão, passe false.'
       }
     },
     required: ['cidade', 'idadeTitular', 'tipo']
@@ -99,18 +129,12 @@ const sessoes = new Map()
 export async function processarMensagem({ numero, mensagem, corretor }) {
   const chave = numero
 
-  // Inicializar sessão se não existir
   if (!sessoes.has(chave)) {
-    sessoes.set(chave, {
-      historico: [],
-      ultimaCotacao: null,
-      corretor
-    })
+    sessoes.set(chave, { historico: [], ultimaCotacao: null, corretor })
   }
 
   const sessao = sessoes.get(chave)
 
-  // Comando /pdf ou "pdf"
   if (mensagem.trim().toLowerCase() === 'pdf' || mensagem.trim().toLowerCase() === '/pdf') {
     if (!sessao.ultimaCotacao) {
       return { tipo: 'texto', conteudo: '📄 Ainda não há cotação para gerar o PDF. Faça uma cotação primeiro!' }
@@ -118,7 +142,6 @@ export async function processarMensagem({ numero, mensagem, corretor }) {
     return { tipo: 'pdf', cotacao: sessao.ultimaCotacao, corretor }
   }
 
-  // Comando /ajuda
   if (mensagem.trim().toLowerCase() === '/ajuda' || mensagem.trim().toLowerCase() === 'ajuda') {
     return {
       tipo: 'texto',
@@ -141,17 +164,15 @@ _Cidades atendidas: ${CIDADES_VALIDAS.join(', ')}_`
     }
   }
 
-  // Comando /nova
   if (mensagem.trim().toLowerCase() === 'nova' || mensagem.trim().toLowerCase() === '/nova') {
     sessoes.set(chave, { historico: [], ultimaCotacao: null, corretor })
     return { tipo: 'texto', conteudo: '✅ Nova cotação iniciada! Me mande os dados do cliente.' }
   }
 
-  // Adicionar mensagem ao histórico
   sessao.historico.push({ role: 'user', content: mensagem })
 
-  // Mensagens de trabalho para esta chamada (pode incluir idas e vindas de tool use,
-  // que não são persistidas no histórico de longo prazo — só a resposta final em texto)
+  const systemPrompt = `${BASE_SYSTEM_PROMPT}\n\nCorretor sendo atendido nesta conversa: ${corretor?.nome || 'corretor'}. Chame-o pelo nome quando fizer sentido.`
+
   let mensagensParaClaude = [...sessao.historico]
   let respostaIA = null
 
@@ -159,7 +180,7 @@ _Cidades atendidas: ${CIDADES_VALIDAS.join(', ')}_`
     const response = await claude.messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 1000,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       tools: [BUSCAR_PLANOS_TOOL],
       messages: mensagensParaClaude
     })
@@ -174,7 +195,10 @@ _Cidades atendidas: ${CIDADES_VALIDAS.join(', ')}_`
           idadeTitular: toolUse.input.idadeTitular,
           tipo: toolUse.input.tipo,
           profissao: toolUse.input.profissao,
-          dependentes: toolUse.input.dependentes || []
+          dependentes: toolUse.input.dependentes || [],
+          acomodacaoPreferida: toolUse.input.acomodacaoPreferida,
+          operadoraPreferida: toolUse.input.operadoraPreferida,
+          incluirAdesao: toolUse.input.incluirAdesao
         })
         resultadoFerramenta = JSON.stringify({ planos })
       } catch (err) {
@@ -202,15 +226,12 @@ _Cidades atendidas: ${CIDADES_VALIDAS.join(', ')}_`
     respostaIA = '⚠️ Não consegui finalizar sua cotação agora. Pode tentar novamente?'
   }
 
-  // Adicionar resposta final ao histórico (sem as idas e vindas de tool use)
   sessao.historico.push({ role: 'assistant', content: respostaIA })
 
-  // Limitar histórico a 20 mensagens
   if (sessao.historico.length > 20) {
     sessao.historico = sessao.historico.slice(-20)
   }
 
-  // Verificar se tem cotação pronta
   if (respostaIA.includes('[COTACAO_PRONTA]')) {
     const match = respostaIA.match(/\[COTACAO_PRONTA\]([\s\S]*?)\[\/COTACAO_PRONTA\]/)
     if (match) {
@@ -229,7 +250,6 @@ _Cidades atendidas: ${CIDADES_VALIDAS.join(', ')}_`
       }
     }
 
-    // Remover tag da resposta
     const respostaLimpa = respostaIA
       .replace(/\[COTACAO_PRONTA\][\s\S]*?\[\/COTACAO_PRONTA\]\n?/, '')
       .trim()

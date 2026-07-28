@@ -30,11 +30,16 @@ const COPART_LABELS = {
   coparticipacao_50_50: 'Copart 50/50'
 }
 
-export async function buscarPlanos({ cidade, idadeTitular, tipo, profissao, dependentes = [] }) {
+export async function buscarPlanos({
+  cidade, idadeTitular, tipo, profissao, dependentes = [],
+  acomodacaoPreferida, operadoraPreferida, incluirAdesao = true
+}) {
   const supabase = getClient()
-  const modalidades = tipo === 'PF' ? ['individual_familiar', 'adesao'] : ['empresarial_pme', 'empresarial_corporativo']
+  const modalidades = tipo === 'PF'
+    ? (incluirAdesao ? ['individual_familiar', 'adesao'] : ['individual_familiar'])
+    : ['empresarial_pme', 'empresarial_corporativo']
 
-  const { data: planos, error } = await supabase
+  let query = supabase
     .from('planos')
     .select(`
       id, nome, modalidade, acomodacao,
@@ -50,6 +55,12 @@ export async function buscarPlanos({ cidade, idadeTitular, tipo, profissao, depe
     .gte('plano_faixas_etarias.idade_ate', idadeTitular)
     .lte('plano_faixas_etarias.idade_de', idadeTitular)
 
+  if (acomodacaoPreferida) {
+    query = query.eq('acomodacao', acomodacaoPreferida)
+  }
+
+  const { data: planos, error } = await query
+
   if (error) {
     console.error('❌ Erro ao buscar planos:', error.message)
     return []
@@ -63,7 +74,7 @@ export async function buscarPlanos({ cidade, idadeTitular, tipo, profissao, depe
     if (!porId.has(p.id)) porId.set(p.id, p)
   }
 
-  return Array.from(porId.values()).map(p => {
+  const resultado = Array.from(porId.values()).map(p => {
     const precoTitular = p.plano_faixas_etarias?.[0]?.valor || 0
     let precoTotal = precoTitular
     for (const dep of dependentes) {
@@ -79,5 +90,18 @@ export async function buscarPlanos({ cidade, idadeTitular, tipo, profissao, depe
       preco: precoTotal,
       administradora: p.administradoras?.nome || null,
     }
-  }).sort((a, b) => a.preco - b.preco)
+  })
+
+  if (operadoraPreferida) {
+    const alvo = operadoraPreferida.trim().toLowerCase()
+    resultado.sort((a, b) => {
+      const aMatch = a.operadora?.toLowerCase().includes(alvo) ? 0 : 1
+      const bMatch = b.operadora?.toLowerCase().includes(alvo) ? 0 : 1
+      if (aMatch !== bMatch) return aMatch - bMatch
+      return a.preco - b.preco
+    })
+    return resultado
+  }
+
+  return resultado.sort((a, b) => a.preco - b.preco)
 }
